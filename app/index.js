@@ -7,12 +7,23 @@ class MathUtils {
         const dy = pos1.y - pos2.y;
         return Math.round(Math.sqrt(dx * dx + dy * dy));
     }
-    static getRandomAngularPositionFrom(position, distance) {
+    static getRandomAngularPosition() {
+        const randomDistance = Math.random() * 200;
         const randomAngle = Math.random() * 2 * Math.PI;
+        return this.getAngularPosition(randomAngle, randomDistance);
+    }
+    static getRandomAngle() {
+        return Math.random() * 2 * Math.PI;
+    }
+    static getAngularPosition(angle, distance) {
         return {
-            x: position.x + distance * Math.cos(randomAngle),
-            y: position.y + distance * Math.sin(randomAngle),
+            x: distance * Math.cos(angle),
+            y: distance * Math.sin(angle),
         };
+    }
+    static getRandomAngularPositionWithDistance(distance) {
+        const randomAngle = Math.random() * 2 * Math.PI;
+        return this.getAngularPosition(randomAngle, distance);
     }
 }
 class Edge {
@@ -55,7 +66,6 @@ var NodeType;
 })(NodeType || (NodeType = {}));
 class CentralNode {
     constructor(id, x, y) {
-        this.outerNodes = [];
         this.id = id;
         this.label = id;
         this.position = { x, y };
@@ -77,16 +87,25 @@ class CentralNode {
     }
 }
 class OuterNode {
-    constructor(id, distance, position) {
+    constructor(id, distance = 0) {
         this.id = id;
         this.label = id;
-        this.distance = distance;
-        this.position = position;
+        this.angle = MathUtils.getRandomAngle();
+        this.position = MathUtils.getAngularPosition(this.angle, distance);
         this.type = NodeType.outer_node;
         cy.add(this.toObject()).addClass(this.type.toString());
     }
     remove() {
         cy.remove(cy.getElementById(this.id));
+    }
+    setDistance(distance) {
+        this.position = MathUtils.getAngularPosition(this.angle, distance);
+        cy.getElementById(this.id).position(this.position);
+    }
+    setPosition(position) {
+        this.position = position;
+        this.angle = Math.atan2(position.y, position.x);
+        cy.getElementById(this.id).position(this.position);
     }
     toObject() {
         return {
@@ -99,31 +118,47 @@ class OuterNode {
     }
 }
 class NeighbourTerm {
-    constructor(id, term, queryTerm) {
+    constructor(queryTerm, term = '', hops = 0) {
+        this.hopToDistanceRatio = 60;
         this.term = term;
-        const randomDistance = Math.random() * 200;
-        this.node = new OuterNode(`${id}`, randomDistance, MathUtils.getRandomAngularPositionFrom(queryTerm.node.position, randomDistance));
+        this.hops = hops;
+        this.node = new OuterNode(`${getRandomString(8)}`);
+        this.node.setDistance(this.toDistance(hops));
+        this.node.label = term;
+        this.edge = new Edge(queryTerm.node, this.node);
+        cy.getElementById(this.node.id).data('label', term);
+    }
+    toDistance(hops) {
+        return hops * this.hopToDistanceRatio;
+    }
+    updateDistance() {
+        this.edge.updateDistance();
+    }
+    getHops() {
+        return (this.edge.getDistance() / this.hopToDistanceRatio).toFixed(1).toString();
+    }
+    setTerm(term) {
+        this.term = term;
         this.node.label = term;
         cy.getElementById(this.node.id).data('label', term);
     }
-    updateUnion() {
-        var _a;
-        (_a = this.union) === null || _a === void 0 ? void 0 : _a.edge.updateDistance();
+    setHops(hops) {
+        this.hops = hops;
+        this.node.setDistance(this.toDistance(hops));
+        this.updateDistance();
     }
     remove() {
-        var _a;
         this.node.remove();
-        (_a = this.union) === null || _a === void 0 ? void 0 : _a.remove();
+        this.edge.remove();
     }
 }
 class QueryTerm {
     constructor(label) {
         this.neighbourTerms = [];
         this.term = label;
-        this.node = new CentralNode(label, 300, 300);
+        this.node = new CentralNode(label, 0, 0);
     }
     addNeighbourTerm(neighbourTerm) {
-        this.node.outerNodes.push(neighbourTerm.node);
         this.neighbourTerms.push(neighbourTerm);
     }
     removeNeighbourTerm(neighbourTerm) {
@@ -132,20 +167,6 @@ class QueryTerm {
     }
     getNeighbourTermById(id) {
         return this.neighbourTerms.find(p => p.node.id === id);
-    }
-}
-class Union {
-    constructor(queryTerm, neighbourTerm, hops = 0) {
-        this.queryTerm = queryTerm;
-        this.neighbourTerm = neighbourTerm;
-        this.hops = hops;
-        this.edge = new Edge(queryTerm.node, neighbourTerm.node);
-    }
-    getHops() {
-        return this.edge.getDistance().toString();
-    }
-    remove() {
-        this.edge.remove();
     }
 }
 function getRandomString(chars) {
@@ -201,10 +222,10 @@ class TermsController {
     addNeighbourTerm(term = undefined) {
         if (term === undefined)
             term = this.getNeighbourTermInput();
-        const neighbourTerm = new NeighbourTerm(getRandomString(7), term, this.queryTerm);
+        const neighbourTerm = new NeighbourTerm(this.queryTerm);
+        neighbourTerm.setTerm(term);
+        neighbourTerm.setHops(Math.random() * 5);
         this.queryTerm.addNeighbourTerm(neighbourTerm);
-        const union = new Union(this.queryTerm, neighbourTerm);
-        neighbourTerm.union = union;
         this.updateTermsTable();
         return neighbourTerm;
     }
@@ -223,19 +244,19 @@ class TermsController {
             const cell3 = row.insertCell(2);
             cell1.innerHTML = neighbourTerm.node.id;
             cell2.innerHTML = neighbourTerm.term;
-            cell3.innerHTML = neighbourTerm.union ? neighbourTerm.union.getHops() : '';
+            cell3.innerHTML = neighbourTerm.getHops();
         }
     }
-    getTermById(id) {
+    getNeighbourTermById(id) {
         return this.queryTerm.neighbourTerms.find(term => term.node.id === id);
     }
     nodeDragged(id, position) {
-        const term = this.getTermById(id);
+        const term = this.getNeighbourTermById(id);
         if (term === undefined)
             return;
         const neighbourTerm = term;
-        neighbourTerm.node.position = position;
-        neighbourTerm.updateUnion();
+        neighbourTerm.node.setPosition(position);
+        neighbourTerm.updateDistance();
         this.updateTermsTable();
     }
     removeNeighbourTerm(id = undefined) {
