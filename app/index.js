@@ -28,6 +28,9 @@ class Edge {
         cyEdge.data('distance', distance);
         this.distance = distance;
     }
+    updateDistance() {
+        this.setDistance(MathUtils.calculateEuclideanDistance(this.sourceNode, this.targetNode));
+    }
     getDistance() {
         return this.distance;
     }
@@ -52,11 +55,16 @@ var NodeType;
 })(NodeType || (NodeType = {}));
 class CentralNode {
     constructor(id, x, y) {
+        this.outerNodes = [];
         this.id = id;
         this.label = id;
         this.position = { x, y };
         this.type = NodeType.central_node;
-        cy.add(this.toObject()).addClass(this.type.toString());
+        cy
+            .add(this.toObject())
+            .addClass(this.type.toString())
+            .lock()
+            .ungrabify();
     }
     toObject() {
         return {
@@ -69,12 +77,11 @@ class CentralNode {
     }
 }
 class OuterNode {
-    constructor(centralNode, id, distance) {
-        this.centralNode = centralNode;
+    constructor(id, distance, position) {
         this.id = id;
         this.label = id;
         this.distance = distance;
-        this.position = MathUtils.getRandomAngularPositionFrom(centralNode.position, distance);
+        this.position = position;
         this.type = NodeType.outer_node;
         cy.add(this.toObject()).addClass(this.type.toString());
     }
@@ -92,27 +99,50 @@ class OuterNode {
     }
 }
 class NeighbourTerm {
-    constructor(label, queryTerm, edge) {
-        this.label = label;
-        this.node = new OuterNode(queryTerm.node, `${this.label}_${queryTerm.neighbourTerms.length.toString()}`, Math.random() * 200);
-        this.node.label = label;
-        this.edge = edge;
-        cy.getElementById(this.node.id).data('label', label);
+    constructor(id, term, queryTerm) {
+        this.term = term;
+        const randomDistance = Math.random() * 200;
+        this.node = new OuterNode(`${id}`, randomDistance, MathUtils.getRandomAngularPositionFrom(queryTerm.node.position, randomDistance));
+        this.node.label = term;
+        cy.getElementById(this.node.id).data('label', term);
+    }
+    updateUnion() {
+        var _a;
+        (_a = this.union) === null || _a === void 0 ? void 0 : _a.edge.updateDistance();
     }
     remove() {
+        var _a;
         this.node.remove();
-        this.edge.remove();
+        (_a = this.union) === null || _a === void 0 ? void 0 : _a.remove();
     }
 }
 class QueryTerm {
     constructor(label) {
         this.neighbourTerms = [];
-        this.label = label;
+        this.term = label;
         this.node = new CentralNode(label, 300, 300);
     }
     addNeighbourTerm(neighbourTerm) {
+        this.node.outerNodes.push(neighbourTerm.node);
         this.neighbourTerms.push(neighbourTerm);
     }
+}
+class Union {
+    constructor(queryTerm, neighbourTerm, hops = 0) {
+        this.queryTerm = queryTerm;
+        this.neighbourTerm = neighbourTerm;
+        this.hops = hops;
+        this.edge = new Edge(queryTerm.node, neighbourTerm.node);
+    }
+    getHops() {
+        return this.edge.getDistance().toString();
+    }
+    remove() {
+        this.edge.remove();
+    }
+}
+function getRandomString(chars) {
+    return (Math.random() + 1).toString(36).substring(chars);
 }
 const cy = cytoscape({
     container: document.getElementById("cy"),
@@ -157,103 +187,63 @@ cy.on('drag', 'node', evt => {
 });
 class TermsController {
     constructor() {
-        // Views
-        this.edges = [];
-        // Models
-        this.terms = [];
-        this.queryTerms = [];
+        this.neighbourTerms = [];
         this.table = document.getElementById('neighboursTermsTable');
         this.input = document.getElementById('neighboursTermsInput');
-        this.addQueryTerm('QueryTerm');
+        this.queryTerm = new QueryTerm('QueryTerm');
     }
-    linkNodes(node1, node2) {
-        const edge = new Edge(node1, node2);
-        this.edges.push(edge);
-        return edge;
-    }
-    addQueryTerm(label = undefined) {
-        if (label === undefined)
-            label = "Query Term";
-        const queryTerm = new QueryTerm(label);
-        this.queryTerms.push(queryTerm);
-        this.terms.push(queryTerm);
-        this.updateTermsTable();
-        return queryTerm;
-    }
-    addNeighbourTerm(label = undefined) {
-        if (label === undefined)
-            label = this.getNeighbourTermInput();
-        const queryTerm = this.queryTerms[0];
-        const neighbourTerm = new NeighbourTerm(label, queryTerm, new Edge(queryTerm.node, queryTerm.node));
-        neighbourTerm.edge.remove();
-        neighbourTerm.edge = this.linkNodes(queryTerm.node, neighbourTerm.node);
-        queryTerm.addNeighbourTerm(neighbourTerm);
-        this.terms.push(neighbourTerm);
+    addNeighbourTerm(term = undefined) {
+        if (term === undefined)
+            term = this.getNeighbourTermInput();
+        const neighbourTerm = new NeighbourTerm(getRandomString(7), term, this.queryTerm);
+        this.queryTerm.addNeighbourTerm(neighbourTerm);
+        this.neighbourTerms.push(neighbourTerm);
+        const union = new Union(this.queryTerm, neighbourTerm);
+        neighbourTerm.union = union;
         this.updateTermsTable();
         return neighbourTerm;
     }
     getNeighbourTermInput() {
         const inputNeighbourTerm = this.input.value.trim();
-        const input = inputNeighbourTerm === '' ? (Math.random() + 1).toString(36).substring(7) : inputNeighbourTerm;
+        const input = inputNeighbourTerm === '' ? getRandomString(7) : inputNeighbourTerm;
         return input;
     }
     updateTermsTable() {
-        var _a;
         const tbody = this.table.getElementsByTagName('tbody')[0];
         tbody.innerHTML = ''; // Clear existing rows
-        for (const neighbourTerm of this.queryTerms[0].neighbourTerms) {
+        for (const neighbourTerm of this.queryTerm.neighbourTerms) {
             const row = tbody.insertRow();
             const cell1 = row.insertCell(0);
             const cell2 = row.insertCell(1);
             const cell3 = row.insertCell(2);
             cell1.innerHTML = neighbourTerm.node.id;
-            cell2.innerHTML = neighbourTerm.label;
-            cell3.innerHTML = (_a = neighbourTerm.edge) === null || _a === void 0 ? void 0 : _a.getDistance().toString();
+            cell2.innerHTML = neighbourTerm.term;
+            cell3.innerHTML = neighbourTerm.union ? neighbourTerm.union.getHops() : '';
         }
     }
     getTermById(id) {
-        return this.terms.find(term => term.node.id === id);
-    }
-    getEdge(node1, node2) {
-        return this.edges.find(edge => edge.sourceNode.id === node1.id && edge.targetNode.id === node2.id);
-    }
-    updateEdgeDistance(node1, node2) {
-        const edge = this.getEdge(node1, node2);
-        if (edge === undefined)
-            return;
-        const distance = MathUtils.calculateEuclideanDistance(node1, node2);
-        edge.setDistance(distance);
+        return this.neighbourTerms.find(term => term.node.id === id);
     }
     nodeDragged(id, position) {
         const term = this.getTermById(id);
         if (term === undefined)
             return;
-        if (term instanceof QueryTerm) {
-            const queryTerm = term;
-            queryTerm.node.position = position;
-            for (const neighbourTerm of queryTerm.neighbourTerms) {
-                this.updateEdgeDistance(queryTerm.node, neighbourTerm.node);
-            }
-        }
-        else {
-            const neighbourTerm = term;
-            neighbourTerm.node.position = position;
-            this.updateEdgeDistance(neighbourTerm.node.centralNode, neighbourTerm.node);
-        }
+        const neighbourTerm = term;
+        neighbourTerm.node.position = position;
+        neighbourTerm.updateUnion();
         this.updateTermsTable();
     }
     removeNeighbourTerm(label = undefined) {
         if (label === undefined)
             label = this.getNeighbourTermInput();
-        const term = this.terms.find(p => p.label === label);
+        const term = this.neighbourTerms.find(p => p.term === label);
         if (term === undefined)
             return;
         if (term instanceof QueryTerm)
             return;
         const neighbourTerm = term;
-        const edge = neighbourTerm.edge;
-        this.edges = this.edges.filter(e => e.id !== edge.id);
         neighbourTerm.remove();
+        this.neighbourTerms = this.neighbourTerms.filter(p => p !== term);
         this.updateTermsTable();
     }
 }
@@ -263,7 +253,7 @@ cy.ready(() => {
     termsController.addNeighbourTerm('NeighbourB');
     termsController.addNeighbourTerm('NeighbourC');
     cy.zoom(1.2);
-    cy.center(cy.getElementById(termsController.queryTerms[0].node.id)); // Center viewport on the 'central' node
+    cy.center(cy.getElementById(termsController.neighbourTerms[0].node.id)); // Center viewport on the 'central' node
 });
 window.cy = cy;
 window.controller = termsController;

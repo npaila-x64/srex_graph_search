@@ -55,6 +55,10 @@ class Edge {
         this.distance = distance
     }
 
+    updateDistance() {
+        this.setDistance(MathUtils.calculateEuclideanDistance(this.sourceNode, this.targetNode))
+    }
+
     getDistance(): number {
         return this.distance
     }
@@ -96,13 +100,18 @@ class CentralNode implements GraphNode {
     label: string
     position: Position
     type: NodeType
+    outerNodes: OuterNode[] = []
     
     constructor(id: string, x: number, y: number) {
         this.id = id
         this.label = id
         this.position = { x, y }
         this.type = NodeType.central_node
-        cy.add(this.toObject()).addClass(this.type.toString())
+        cy
+        .add(this.toObject())
+        .addClass(this.type.toString())
+        .lock()
+        .ungrabify()
     }
   
     toObject(): { data: NodeData; position: Position } {
@@ -117,19 +126,17 @@ class CentralNode implements GraphNode {
 }
   
 class OuterNode implements GraphNode {
-    centralNode: CentralNode
     id: string
     label: string
     distance: number
     position: Position
     type: NodeType
 
-    constructor(centralNode: CentralNode, id: string, distance: number) {
-        this.centralNode = centralNode
+    constructor(id: string, distance: number, position: Position) {
         this.id = id
         this.label = id
         this.distance = distance
-        this.position = MathUtils.getRandomAngularPositionFrom(centralNode.position, distance)
+        this.position = position
         this.type = NodeType.outer_node
         cy.add(this.toObject()).addClass(this.type.toString())
     }
@@ -150,48 +157,79 @@ class OuterNode implements GraphNode {
 }
 
 interface Term {
-    label: string
+    term: string
     node: GraphNode
 }
 
 class NeighbourTerm implements Term {
-    label: string
+    term: string
     node: OuterNode
-    edge: Edge
+    union: Union | undefined
 
-    constructor(label: string, queryTerm: QueryTerm, edge: Edge) {
-        this.label = label
+    constructor(id: string, term: string, queryTerm: QueryTerm) {
+        this.term = term
+        const randomDistance = Math.random() * 200
         this.node = new OuterNode(
-            queryTerm.node, 
-            `${this.label}_${queryTerm.neighbourTerms.length.toString()}`, 
-            Math.random() * 200
+            `${id}`, 
+            randomDistance,
+            MathUtils.getRandomAngularPositionFrom(queryTerm.node.position, randomDistance)
         )
-        this.node.label = label
-        this.edge = edge
-        cy.getElementById(this.node.id).data('label', label)
+        this.node.label = term
+        cy.getElementById(this.node.id).data('label', term)
+    }
+
+    updateUnion() {
+        this.union?.edge.updateDistance()
     }
 
     remove() {
         this.node.remove()
-        this.edge.remove()
+        this.union?.remove()
     }
 }
 
 class QueryTerm implements Term {
-    label: string
+    term: string
     node: CentralNode
     neighbourTerms: NeighbourTerm[] = []
 
     constructor(label: string) {
-        this.label = label
+        this.term = label
         this.node = new CentralNode(label, 300, 300)
     }
 
     addNeighbourTerm(neighbourTerm: NeighbourTerm) {
+        this.node.outerNodes.push(neighbourTerm.node)
         this.neighbourTerms.push(neighbourTerm)
     }
 }
-  
+
+class Union {
+    queryTerm: Term
+    neighbourTerm: Term
+    edge: Edge
+    hops: number
+
+    constructor(queryTerm: Term, neighbourTerm: Term, hops: number = 0) {
+        this.queryTerm = queryTerm
+        this.neighbourTerm = neighbourTerm
+        this.hops = hops
+        this.edge = new Edge(queryTerm.node, neighbourTerm.node)
+    }
+
+    getHops(): string {
+        return this.edge.getDistance().toString()
+    }
+
+    remove() {
+        this.edge.remove()
+    }
+}
+
+function getRandomString(chars: number) {
+    return (Math.random() + 1).toString(36).substring(chars)
+}
+
 const cy = cytoscape({
     container: document.getElementById("cy") as HTMLElement,
     layout: {
@@ -236,12 +274,9 @@ cy.on('drag', 'node', evt => {
 })
 
 class TermsController {
-    // Views
-    edges: Edge[] = []
-
     // Models
-    terms: Term[] = []
-    queryTerms: QueryTerm[] = []
+    queryTerm: QueryTerm
+    neighbourTerms: NeighbourTerm[] = []
 
     // HTML Elements
     table: HTMLElement
@@ -250,38 +285,19 @@ class TermsController {
     constructor() {
         this.table = document.getElementById('neighboursTermsTable') as HTMLElement
         this.input = document.getElementById('neighboursTermsInput') as HTMLInputElement
-        this.addQueryTerm('QueryTerm')
+        this.queryTerm = new QueryTerm('QueryTerm')
     }
 
-    private linkNodes(node1: CentralNode, node2: OuterNode): Edge {
-        const edge = new Edge(node1, node2)
-        this.edges.push(edge)
+    addNeighbourTerm(term: string | undefined = undefined): NeighbourTerm {
+        if (term === undefined) term = this.getNeighbourTermInput()
 
-        return edge
-    }
+        const neighbourTerm = new NeighbourTerm(getRandomString(7), term, this.queryTerm)
 
-    addQueryTerm(label: string | undefined = undefined): QueryTerm {
-        if (label === undefined) label = "Query Term"
+        this.queryTerm.addNeighbourTerm(neighbourTerm)
+        this.neighbourTerms.push(neighbourTerm)
 
-        const queryTerm = new QueryTerm(label)
-        this.queryTerms.push(queryTerm)
-        this.terms.push(queryTerm)
-
-        this.updateTermsTable()
-        return queryTerm
-    }
-
-    addNeighbourTerm(label: string | undefined = undefined): NeighbourTerm {
-        if (label === undefined) label = this.getNeighbourTermInput()
-
-        const queryTerm = this.queryTerms[0]
-
-        const neighbourTerm = new NeighbourTerm(label, queryTerm, new Edge(queryTerm.node, queryTerm.node))
-        neighbourTerm.edge.remove()
-        neighbourTerm.edge = this.linkNodes(queryTerm.node, neighbourTerm.node)
-
-        queryTerm.addNeighbourTerm(neighbourTerm)
-        this.terms.push(neighbourTerm)
+        const union = new Union(this.queryTerm, neighbourTerm)
+        neighbourTerm.union = union
 
         this.updateTermsTable()
         return neighbourTerm
@@ -289,7 +305,7 @@ class TermsController {
 
     private getNeighbourTermInput(): string {
         const inputNeighbourTerm = this.input.value.trim()
-        const input = inputNeighbourTerm === '' ? (Math.random() + 1).toString(36).substring(7) : inputNeighbourTerm
+        const input = inputNeighbourTerm === '' ? getRandomString(7) : inputNeighbourTerm
         return input
     }
 
@@ -297,63 +313,41 @@ class TermsController {
         const tbody = this.table.getElementsByTagName('tbody')[0]
         tbody.innerHTML = '' // Clear existing rows
 
-        for(const neighbourTerm of this.queryTerms[0].neighbourTerms) {
+        for(const neighbourTerm of this.queryTerm.neighbourTerms) {
             const row = tbody.insertRow()
             const cell1 = row.insertCell(0)
             const cell2 = row.insertCell(1)
             const cell3 = row.insertCell(2)
 
             cell1.innerHTML = neighbourTerm.node.id
-            cell2.innerHTML = neighbourTerm.label
-            cell3.innerHTML = neighbourTerm.edge?.getDistance().toString()
+            cell2.innerHTML = neighbourTerm.term
+            cell3.innerHTML = neighbourTerm.union ? neighbourTerm.union.getHops() : ''
         }
     }
 
     private getTermById(id: string): Term | undefined {
-        return this.terms.find(term => term.node.id === id)
-    }
-
-    private getEdge(node1: GraphNode, node2: GraphNode): Edge | undefined {
-        return this.edges.find(edge => edge.sourceNode.id === node1.id && edge.targetNode.id === node2.id)
-    }
-
-    private updateEdgeDistance(node1: CentralNode, node2: OuterNode) {
-        const edge: Edge | undefined = this.getEdge(node1, node2)
-        if (edge === undefined) return
-
-        const distance = MathUtils.calculateEuclideanDistance(node1, node2)
-        edge.setDistance(distance)
+        return this.neighbourTerms.find(term => term.node.id === id)
     }
 
     nodeDragged(id: string, position: Position) {
         const term: Term | undefined = this.getTermById(id)
         if (term === undefined) return
-        if (term instanceof QueryTerm) {
-            const queryTerm = term as QueryTerm
-            queryTerm.node.position = position
+        const neighbourTerm = term as NeighbourTerm
+        neighbourTerm.node.position = position
 
-            for(const neighbourTerm of queryTerm.neighbourTerms) {
-                this.updateEdgeDistance(queryTerm.node, neighbourTerm.node)
-            }
-        } else {
-            const neighbourTerm = term as NeighbourTerm
-            neighbourTerm.node.position = position
-
-            this.updateEdgeDistance(neighbourTerm.node.centralNode, neighbourTerm.node)
-        }
+        neighbourTerm.updateUnion()
         this.updateTermsTable()
     }
 
     removeNeighbourTerm(label: string | undefined = undefined) {
         if (label === undefined) label = this.getNeighbourTermInput()
-        const term: Term | undefined = this.terms.find(p => p.label === label)
+        const term: Term | undefined = this.neighbourTerms.find(p => p.term === label)
         if (term === undefined) return
         if (term instanceof QueryTerm) return
 
         const neighbourTerm = term as NeighbourTerm
-        const edge: Edge | undefined = neighbourTerm.edge
-        this.edges = this.edges.filter(e => e.id !== edge.id)
         neighbourTerm.remove()
+        this.neighbourTerms = this.neighbourTerms.filter(p => p !== term)
         
         this.updateTermsTable()
     }
@@ -367,7 +361,7 @@ cy.ready(() => {
     termsController.addNeighbourTerm('NeighbourC')
 
     cy.zoom(1.2)
-    cy.center(cy.getElementById(termsController.queryTerms[0].node.id)) // Center viewport on the 'central' node
+    cy.center(cy.getElementById(termsController.neighbourTerms[0].node.id)) // Center viewport on the 'central' node
 })
 
 // quick and dirty way to get the cytoscape instance in the console
