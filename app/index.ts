@@ -202,6 +202,15 @@ class QueryTerm implements Term {
         this.node.outerNodes.push(neighbourTerm.node)
         this.neighbourTerms.push(neighbourTerm)
     }
+
+    removeNeighbourTerm(neighbourTerm: NeighbourTerm) {
+        this.neighbourTerms = this.neighbourTerms.filter(term => term !== neighbourTerm)
+        neighbourTerm.remove()
+    }
+
+    getNeighbourTermById(id: string): NeighbourTerm | undefined {
+        return this.neighbourTerms.find(p => p.node.id === id)
+    }
 }
 
 class Union {
@@ -276,7 +285,6 @@ cy.on('drag', 'node', evt => {
 class TermsController {
     // Models
     queryTerm: QueryTerm
-    neighbourTerms: NeighbourTerm[] = []
 
     // HTML Elements
     table: HTMLElement
@@ -292,9 +300,7 @@ class TermsController {
         if (term === undefined) term = this.getNeighbourTermInput()
 
         const neighbourTerm = new NeighbourTerm(getRandomString(7), term, this.queryTerm)
-
         this.queryTerm.addNeighbourTerm(neighbourTerm)
-        this.neighbourTerms.push(neighbourTerm)
 
         const union = new Union(this.queryTerm, neighbourTerm)
         neighbourTerm.union = union
@@ -312,7 +318,7 @@ class TermsController {
     private updateTermsTable() {
         const tbody = this.table.getElementsByTagName('tbody')[0]
         tbody.innerHTML = '' // Clear existing rows
-
+        
         for(const neighbourTerm of this.queryTerm.neighbourTerms) {
             const row = tbody.insertRow()
             const cell1 = row.insertCell(0)
@@ -326,7 +332,7 @@ class TermsController {
     }
 
     private getTermById(id: string): Term | undefined {
-        return this.neighbourTerms.find(term => term.node.id === id)
+        return this.queryTerm.neighbourTerms.find(term => term.node.id === id)
     }
 
     nodeDragged(id: string, position: Position) {
@@ -339,17 +345,17 @@ class TermsController {
         this.updateTermsTable()
     }
 
-    removeNeighbourTerm(label: string | undefined = undefined) {
-        if (label === undefined) label = this.getNeighbourTermInput()
-        const term: Term | undefined = this.neighbourTerms.find(p => p.term === label)
+    removeNeighbourTerm(id: string | undefined = undefined) {
+        if (id === undefined) id = this.getNeighbourTermInput()
+        const term: Term | undefined = this.queryTerm.getNeighbourTermById(id)
         if (term === undefined) return
-        if (term instanceof QueryTerm) return
-
-        const neighbourTerm = term as NeighbourTerm
-        neighbourTerm.remove()
-        this.neighbourTerms = this.neighbourTerms.filter(p => p !== term)
-        
+        this.queryTerm.removeNeighbourTerm(term as NeighbourTerm)
         this.updateTermsTable()
+    }
+
+    center() {
+        cy.zoom(1.2)
+        cy.center(cy.getElementById(this.queryTerm.node.id))
     }
 }
 
@@ -360,8 +366,7 @@ cy.ready(() => {
     termsController.addNeighbourTerm('NeighbourB')
     termsController.addNeighbourTerm('NeighbourC')
 
-    cy.zoom(1.2)
-    cy.center(cy.getElementById(termsController.neighbourTerms[0].node.id)) // Center viewport on the 'central' node
+    termsController.center()
 })
 
 // quick and dirty way to get the cytoscape instance in the console

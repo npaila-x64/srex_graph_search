@@ -126,6 +126,13 @@ class QueryTerm {
         this.node.outerNodes.push(neighbourTerm.node);
         this.neighbourTerms.push(neighbourTerm);
     }
+    removeNeighbourTerm(neighbourTerm) {
+        this.neighbourTerms = this.neighbourTerms.filter(term => term !== neighbourTerm);
+        neighbourTerm.remove();
+    }
+    getNeighbourTermById(id) {
+        return this.neighbourTerms.find(p => p.node.id === id);
+    }
 }
 class Union {
     constructor(queryTerm, neighbourTerm, hops = 0) {
@@ -187,7 +194,6 @@ cy.on('drag', 'node', evt => {
 });
 class TermsController {
     constructor() {
-        this.neighbourTerms = [];
         this.table = document.getElementById('neighboursTermsTable');
         this.input = document.getElementById('neighboursTermsInput');
         this.queryTerm = new QueryTerm('QueryTerm');
@@ -197,7 +203,6 @@ class TermsController {
             term = this.getNeighbourTermInput();
         const neighbourTerm = new NeighbourTerm(getRandomString(7), term, this.queryTerm);
         this.queryTerm.addNeighbourTerm(neighbourTerm);
-        this.neighbourTerms.push(neighbourTerm);
         const union = new Union(this.queryTerm, neighbourTerm);
         neighbourTerm.union = union;
         this.updateTermsTable();
@@ -222,7 +227,7 @@ class TermsController {
         }
     }
     getTermById(id) {
-        return this.neighbourTerms.find(term => term.node.id === id);
+        return this.queryTerm.neighbourTerms.find(term => term.node.id === id);
     }
     nodeDragged(id, position) {
         const term = this.getTermById(id);
@@ -233,18 +238,18 @@ class TermsController {
         neighbourTerm.updateUnion();
         this.updateTermsTable();
     }
-    removeNeighbourTerm(label = undefined) {
-        if (label === undefined)
-            label = this.getNeighbourTermInput();
-        const term = this.neighbourTerms.find(p => p.term === label);
+    removeNeighbourTerm(id = undefined) {
+        if (id === undefined)
+            id = this.getNeighbourTermInput();
+        const term = this.queryTerm.getNeighbourTermById(id);
         if (term === undefined)
             return;
-        if (term instanceof QueryTerm)
-            return;
-        const neighbourTerm = term;
-        neighbourTerm.remove();
-        this.neighbourTerms = this.neighbourTerms.filter(p => p !== term);
+        this.queryTerm.removeNeighbourTerm(term);
         this.updateTermsTable();
+    }
+    center() {
+        cy.zoom(1.2);
+        cy.center(cy.getElementById(this.queryTerm.node.id));
     }
 }
 const termsController = new TermsController();
@@ -252,8 +257,7 @@ cy.ready(() => {
     termsController.addNeighbourTerm();
     termsController.addNeighbourTerm('NeighbourB');
     termsController.addNeighbourTerm('NeighbourC');
-    cy.zoom(1.2);
-    cy.center(cy.getElementById(termsController.neighbourTerms[0].node.id)); // Center viewport on the 'central' node
+    termsController.center();
 });
 window.cy = cy;
 window.controller = termsController;
