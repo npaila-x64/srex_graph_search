@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+</head>
+<body>
+    <div>
+        <div id="addNeighbourTerms">
+            <input type="text" id="neighboursTermsInput" placeholder="New Neighbour Term">
+            <button onclick="controller.addNeighbourTerm()">Add Neighbour Term</button>
+        </div>
+        <div id="cy"></div>
+    </div>
+
+    <table id="neighboursTermsTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Neighbour Term</th>
+                <th>Distance</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Rows will be added here dynamically -->
+        </tbody>
+    </table>
+
+    <script src="index.js"></script>
+</body>
+</html>
