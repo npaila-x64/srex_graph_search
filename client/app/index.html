@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+</head>
+<body>
+    <div id="rootContainer">
+        <div id="leftContainer">
+            <div id="queryBar">
+                <input type="text" id="queryInput" placeholder="new query..." autofocus>
+            </div>
+            <div id="cy"></div>
+        </div>
+        <div id="rightContainer">
+            <h3 style="text-align: center;">Query terms</h3>
+            <div id="queryListContainer">
+                <ul id="queryTermsList">
+                    <!-- List items will be added here dynamically -->
+                </ul>
+            </div>
+            <h3 style="text-align: center;">Ranking</h3>
+            <div id="rankingContainer">
+                <ul id="resultsList">
+                    <!-- Rows will be added here dynamically -->
+                </ul>
+            </div>
+            <table id="neighboursTermsTable" class="termsTable">
+                <thead>
+                    <tr>
+                        <th>Neighbour Term</th>
+                        <th>Hops</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Rows will be added here dynamically -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="index.js"></script>
+</body>
+</html>
