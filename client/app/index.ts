@@ -201,13 +201,13 @@ class OuterNode implements GraphNode {
 }
 
 interface Term {
-    label: string
+    value: string
 }
 
 class NeighbourTerm implements Term {
     queryTerm: QueryTerm
     hops: number
-    label: string
+    value: string
     node: OuterNode | undefined
     nodePosition: Position = { x: 0, y: 0 }
     edge: Edge | undefined
@@ -216,7 +216,7 @@ class NeighbourTerm implements Term {
 
     constructor(queryTerm: QueryTerm, label: string = '', hops: number = 0) {
         this.queryTerm = queryTerm
-        this.label = label
+        this.value = label
         this.hops = hops
     }
 
@@ -232,8 +232,8 @@ class NeighbourTerm implements Term {
         return this.hops
     }
 
-    setLabel(label: string) {
-        this.label = label
+    setTerm(label: string) {
+        this.value = label
         this.node?.setLabel(label)
     }
 
@@ -257,8 +257,8 @@ class NeighbourTerm implements Term {
         this.node = new OuterNode(getRandomString(6))
         this.node.setPosition(this.nodePosition)
         
-        this.node.label = this.label
-        cy.getElementById(this.node.id).data('label', this.label)
+        this.node.label = this.value
+        cy.getElementById(this.node.id).data('label', this.value)
         
         if (this.queryTerm.node === undefined) return 
         this.edge = new Edge(this.queryTerm.node, this.node)
@@ -273,10 +273,10 @@ class NeighbourTerm implements Term {
 class QueryTerm implements Term {
     neighbourTerms: NeighbourTerm[] = []
     node: CentralNode | undefined
-    label: string
+    value: string
 
     constructor(value: string) {
-        this.label = value
+        this.value = value
     }
 
     addNeighbourTerm(neighbourTerm: NeighbourTerm) {
@@ -284,7 +284,7 @@ class QueryTerm implements Term {
     }
 
     displayViews() {
-        this.node = new CentralNode(this.label, 0, 0)
+        this.node = new CentralNode(this.value, 0, 0)
         for (let neighbourTerm of this.neighbourTerms) {
             neighbourTerm.displayViews()
         }
@@ -298,7 +298,7 @@ class QueryTerm implements Term {
     }
 
     setLabel(label: string) {
-        this.label = label
+        this.value = label
         this.node?.setLabel(label)
     }
 
@@ -365,27 +365,27 @@ cy.on('drag', 'node', evt => {
 })
 
 class NeighbourTermList {
-    termsService: QueryTermService | undefined
+    activeTermsService: QueryTermService | undefined
     table: HTMLElement
 
     constructor() {
         this.table = document.getElementById('neighboursTermsTable') as HTMLElement
     }
 
-    public setService(termsService: QueryTermService) {
-        this.termsService = termsService
+    public setActiveService(termsService: QueryTermService) {
+        this.activeTermsService = termsService
     }
 
     public updateTable() {
         const tbody = this.table.getElementsByTagName('tbody')[0]
         tbody.innerHTML = '' // Clear existing rows
-        if (this.termsService === undefined) return
-        for(const neighbourTerm of this.termsService.queryTerm.neighbourTerms) {
+        if (this.activeTermsService === undefined) return
+        for(const neighbourTerm of this.activeTermsService.queryTerm.neighbourTerms) {
             const row = tbody.insertRow()
             const cell1 = row.insertCell(0)
             const cell2 = row.insertCell(1)
 
-            cell1.innerHTML = neighbourTerm.label
+            cell1.innerHTML = neighbourTerm.value
             cell2.innerHTML = neighbourTerm.getHops().toFixed(1)
         }
     }
@@ -395,21 +395,46 @@ class QueryTermService {
     queryService: QueryService
     queryTerm: QueryTerm
     isVisible: boolean = false
+    apiUrl = 'http://localhost:3000/get-neighbour-terms'
 
-    constructor(queryService: QueryService) {
+    constructor(queryService: QueryService, queryTerm: QueryTerm) {
         this.queryService = queryService
-        this.queryTerm = new QueryTerm('QueryTerm')
-    }
-
-    public setQueryTerm(queryTerm: QueryTerm): void {
-        this.queryTerm.removeViews()
         this.queryTerm = queryTerm
+        this.retrieveData();
     }
 
-    public addNeighbourTerm(label: string = '') {
-        const neighbourTerm = new NeighbourTerm(this.queryTerm)
-        neighbourTerm.setLabel(label)
-        neighbourTerm.setHops(Math.random() * 4)
+    private async retrieveData() {
+        const result = await this.postData(this.apiUrl, { query: this.queryTerm.value })
+        if (result) {
+            for (let termObject of result['neighbour_terms']) {
+                const neighbourTerm = new NeighbourTerm(this.queryTerm)
+                neighbourTerm.setTerm(termObject.term)
+                neighbourTerm.setHops(termObject.distance)
+                this.addNeighbourTerm(neighbourTerm)
+            }
+        }
+    }
+
+    private async postData(url: string, data: any) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data),
+          })
+      
+          // Handle the response
+          const result = await response.json()
+          console.log('Success:', result)
+          return result
+        } catch (error) {
+          console.error('Error:', error)
+        }
+    }
+
+    private addNeighbourTerm(neighbourTerm: NeighbourTerm) {
         this.queryTerm.addNeighbourTerm(neighbourTerm)
 
         this.queryService.dataWasUpdated()
@@ -431,7 +456,7 @@ class QueryTermService {
         this.center()
     }
 
-    public hide() {
+    public deactivate() {
         this.isVisible = false
         this.queryTerm.removeViews()
     }
@@ -453,8 +478,33 @@ class QueryTermService {
 
 class Query {
     private query: string = ''
-    private input: HTMLInputElement
+    private queryTerms: QueryTerm[] = []
+
+    constructor(query: string) {
+        this.query = query
+    }
+
+    public setValue(query: string) {
+        this.query = query
+    }
+
+    public getValue(): string {
+        return this.query
+    }
+
+    public setQueryTerms(queryTerms: QueryTerm[]): void {
+        this.queryTerms = queryTerms
+    }
+
+    public getQueryTerms(): QueryTerm[] {
+        return this.queryTerms
+    }
+}
+
+class QueryComponent {
+    private query: string = ''
     private queryService: QueryService
+    private input: HTMLInputElement
 
     constructor(queryService: QueryService) {
         this.queryService = queryService
@@ -465,22 +515,13 @@ class Query {
             event.stopImmediatePropagation()
             this.query = this.input.value.trim()
             this.input.value = ''
-            this.queryService.setQuery(this)
             event.preventDefault()
+            this.queryService.setQuery(this.query)
         })
-    }
-
-    public setValue(query: string) {
-        this.query = query
-    }
-
-    public getValue(): string {
-        return this.query
     }
 }
 
 class QueryTermList {
-    list: QueryTermService[] = []
     dynamicList: HTMLElement
     queryService: QueryService
 
@@ -489,24 +530,20 @@ class QueryTermList {
         this.dynamicList = document.getElementById('queryTermsList') as HTMLElement
     }
 
-    public updateList() {
-        this.list.forEach(queryTermService => {
+    public updateList(queryTerms: QueryTerm[]) {
+        this.dynamicList.innerHTML = ''
+        queryTerms.forEach(queryTerm => {
             // Create a new list item element
             const listItem = document.createElement("li")
-            listItem.textContent = queryTermService.queryTerm.label
+            listItem.textContent = queryTerm.value
 
             listItem.addEventListener("click", () => {
-                this.queryService.setActiveTermsService(queryTermService)
+                this.queryService.setActiveTermsService(queryTerm.value)
             })
 
             // Append the list item to the dynamic list container
             this.dynamicList.appendChild(listItem)
         })
-    }
-
-    public clearList() {
-        this.dynamicList.innerHTML = ''
-        this.list = []
     }
 }
 
@@ -520,69 +557,72 @@ class QueryService {
     constructor() {
         this.neighbourTermList = new NeighbourTermList()
         this.queryTermList = new QueryTermList(this)
-        this.query = new Query(this)
+        this.query = new Query('')
     }
 
     public dataWasUpdated() {
         this.neighbourTermList.updateTable()
     }
 
-    public setQuery(query: Query) {
-        this.activeQueryTermService?.hide()
-        this.queryTermList.clearList()
-        this.queryTermServices = []
-        
-        this.query = query
-        this.queryGenerationWasRequested()
-        if (this.queryTermServices.length === 0) return
-        this.setActiveTermsService(this.queryTermServices[0])
-    }
-
-    public getQueryValue(): string {
-        return this.query.getValue()
-    }
-
     public queryGenerationWasRequested() {
-        this.decomposeQuery()
+        const termService = new QueryTermService(this, new QueryTerm(this.query.getValue()))
+
+        this.queryTermServices = []
+        this.queryTermServices.push(termService)
+        // this.decomposeQuery()
+        this.queryTermList.updateList(
+            this.queryTermServices.map(termService => termService.queryTerm)
+        )
         if (this.queryTermServices.length > 0) {
             this.activeQueryTermService = this.queryTermServices[0]
-            this.neighbourTermList.setService(this.activeQueryTermService)
+            this.neighbourTermList.setActiveService(this.activeQueryTermService)
         }
-        this.queryTermList.updateList()
     }
 
     private decomposeQuery() {
-        const queryChunks = this.query.getValue().split(' ')
-        for (let chunk of queryChunks) {
-            const termService = new QueryTermService(this)
-            termService.setQueryTerm(new QueryTerm(chunk))
+        this.queryTermServices = []
+        for (let term of this.query.getValue().split(' ')) {
+            const termService = new QueryTermService(this, new QueryTerm(term))
             this.queryTermServices.push(termService)
-            this.queryTermList.list.push(termService)
         }
     }
 
-    public setActiveTermsService(termsService: QueryTermService) {
-        this.activeQueryTermService?.hide()
-        this.activeQueryTermService = termsService
-        this.activeQueryTermService.display()
+    public setQuery(query: string) {
+        this.activeQueryTermService?.deactivate()
+        
+        this.query = new Query(query)
+        this.queryGenerationWasRequested()
 
-        this.neighbourTermList.setService(termsService)
+        if (this.queryTermServices.length === 0) return
+        this.setActiveTermsService(this.queryTermServices[0].queryTerm.value)
+    }
+
+    public setActiveTermsService(queryTerm: string) {
+        this.activeQueryTermService?.deactivate()
+        const queryTermService = this.findQueryTermService(queryTerm)
+        if (queryTermService === undefined) return
+        this.activeQueryTermService = queryTermService
+        this.activeQueryTermService.display()
+        this.neighbourTermList.setActiveService(queryTermService)
         this.dataWasUpdated()
+        return
+    }
+
+    private findQueryTermService(queryTerm: string): QueryTermService | undefined {
+        return this.queryTermServices.find(termService => termService.queryTerm.value === queryTerm)
     }
 }
 
 const queryService: QueryService = new QueryService()
-const query: Query = new Query(queryService)
-query.setValue('hola mundo')
-queryService.setQuery(query)
+const queryComponent: QueryComponent = new QueryComponent(queryService)
 
 cy.ready(() => {
-    queryService.queryTermServices[0].addNeighbourTerm('holaA')
-    queryService.queryTermServices[0].addNeighbourTerm('holaB')
-    queryService.queryTermServices[0].addNeighbourTerm('holaC')
-    queryService.queryTermServices[1].addNeighbourTerm('mundoA')
-    queryService.queryTermServices[1].addNeighbourTerm('mundoB')
-    queryService.queryTermServices[1].addNeighbourTerm('mundoC')
+    // queryService.queryTermServices[0].addNeighbourTerm('holaA')
+    // queryService.queryTermServices[0].addNeighbourTerm('holaB')
+    // queryService.queryTermServices[0].addNeighbourTerm('holaC')
+    // queryService.queryTermServices[1].addNeighbourTerm('mundoA')
+    // queryService.queryTermServices[1].addNeighbourTerm('mundoB')
+    // queryService.queryTermServices[1].addNeighbourTerm('mundoC')
 })
 
 let searchTerm = "Graphs"

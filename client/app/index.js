@@ -1,4 +1,13 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 class MathUtils {
     static calculateEuclideanDistance(node1, node2) {
         const pos1 = node1.position;
@@ -138,7 +147,7 @@ class NeighbourTerm {
         this.nodePosition = { x: 0, y: 0 };
         this.hopToDistanceRatio = 60;
         this.queryTerm = queryTerm;
-        this.label = label;
+        this.value = label;
         this.hops = hops;
     }
     convertHopsToDistance(hops) {
@@ -150,9 +159,9 @@ class NeighbourTerm {
     getHops() {
         return this.hops;
     }
-    setLabel(label) {
+    setTerm(label) {
         var _a;
-        this.label = label;
+        this.value = label;
         (_a = this.node) === null || _a === void 0 ? void 0 : _a.setLabel(label);
     }
     setPosition(position) {
@@ -174,8 +183,8 @@ class NeighbourTerm {
     displayViews() {
         this.node = new OuterNode(getRandomString(6));
         this.node.setPosition(this.nodePosition);
-        this.node.label = this.label;
-        cy.getElementById(this.node.id).data('label', this.label);
+        this.node.label = this.value;
+        cy.getElementById(this.node.id).data('label', this.value);
         if (this.queryTerm.node === undefined)
             return;
         this.edge = new Edge(this.queryTerm.node, this.node);
@@ -189,13 +198,13 @@ class NeighbourTerm {
 class QueryTerm {
     constructor(value) {
         this.neighbourTerms = [];
-        this.label = value;
+        this.value = value;
     }
     addNeighbourTerm(neighbourTerm) {
         this.neighbourTerms.push(neighbourTerm);
     }
     displayViews() {
-        this.node = new CentralNode(this.label, 0, 0);
+        this.node = new CentralNode(this.value, 0, 0);
         for (let neighbourTerm of this.neighbourTerms) {
             neighbourTerm.displayViews();
         }
@@ -209,7 +218,7 @@ class QueryTerm {
     }
     setLabel(label) {
         var _a;
-        this.label = label;
+        this.value = label;
         (_a = this.node) === null || _a === void 0 ? void 0 : _a.setLabel(label);
     }
     removeNeighbourTerm(neighbourTerm) {
@@ -274,37 +283,65 @@ class NeighbourTermList {
     constructor() {
         this.table = document.getElementById('neighboursTermsTable');
     }
-    setService(termsService) {
-        this.termsService = termsService;
+    setActiveService(termsService) {
+        this.activeTermsService = termsService;
     }
     updateTable() {
         const tbody = this.table.getElementsByTagName('tbody')[0];
         tbody.innerHTML = ''; // Clear existing rows
-        if (this.termsService === undefined)
+        if (this.activeTermsService === undefined)
             return;
-        for (const neighbourTerm of this.termsService.queryTerm.neighbourTerms) {
+        for (const neighbourTerm of this.activeTermsService.queryTerm.neighbourTerms) {
             const row = tbody.insertRow();
             const cell1 = row.insertCell(0);
             const cell2 = row.insertCell(1);
-            cell1.innerHTML = neighbourTerm.label;
+            cell1.innerHTML = neighbourTerm.value;
             cell2.innerHTML = neighbourTerm.getHops().toFixed(1);
         }
     }
 }
 class QueryTermService {
-    constructor(queryService) {
+    constructor(queryService, queryTerm) {
         this.isVisible = false;
+        this.apiUrl = 'http://localhost:3000/get-neighbour-terms';
         this.queryService = queryService;
-        this.queryTerm = new QueryTerm('QueryTerm');
-    }
-    setQueryTerm(queryTerm) {
-        this.queryTerm.removeViews();
         this.queryTerm = queryTerm;
+        this.retrieveData();
     }
-    addNeighbourTerm(label = '') {
-        const neighbourTerm = new NeighbourTerm(this.queryTerm);
-        neighbourTerm.setLabel(label);
-        neighbourTerm.setHops(Math.random() * 4);
+    retrieveData() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const result = yield this.postData(this.apiUrl, { query: this.queryTerm.value });
+            if (result) {
+                for (let termObject of result['neighbour_terms']) {
+                    const neighbourTerm = new NeighbourTerm(this.queryTerm);
+                    neighbourTerm.setTerm(termObject.term);
+                    neighbourTerm.setHops(termObject.distance);
+                    this.addNeighbourTerm(neighbourTerm);
+                }
+            }
+        });
+    }
+    postData(url, data) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const response = yield fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data),
+                });
+                // Handle the response
+                const result = yield response.json();
+                console.log('Success:', result);
+                return result;
+            }
+            catch (error) {
+                console.error('Error:', error);
+            }
+        });
+    }
+    addNeighbourTerm(neighbourTerm) {
         this.queryTerm.addNeighbourTerm(neighbourTerm);
         this.queryService.dataWasUpdated();
         if (this.isVisible)
@@ -323,7 +360,7 @@ class QueryTermService {
         this.queryTerm.displayViews();
         this.center();
     }
-    hide() {
+    deactivate() {
         this.isVisible = false;
         this.queryTerm.removeViews();
     }
@@ -342,6 +379,25 @@ class QueryTermService {
     }
 }
 class Query {
+    constructor(query) {
+        this.query = '';
+        this.queryTerms = [];
+        this.query = query;
+    }
+    setValue(query) {
+        this.query = query;
+    }
+    getValue() {
+        return this.query;
+    }
+    setQueryTerms(queryTerms) {
+        this.queryTerms = queryTerms;
+    }
+    getQueryTerms() {
+        return this.queryTerms;
+    }
+}
+class QueryComponent {
     constructor(queryService) {
         this.query = '';
         this.queryService = queryService;
@@ -352,38 +408,28 @@ class Query {
             event.stopImmediatePropagation();
             this.query = this.input.value.trim();
             this.input.value = '';
-            this.queryService.setQuery(this);
             event.preventDefault();
+            this.queryService.setQuery(this.query);
         });
-    }
-    setValue(query) {
-        this.query = query;
-    }
-    getValue() {
-        return this.query;
     }
 }
 class QueryTermList {
     constructor(queryService) {
-        this.list = [];
         this.queryService = queryService;
         this.dynamicList = document.getElementById('queryTermsList');
     }
-    updateList() {
-        this.list.forEach(queryTermService => {
+    updateList(queryTerms) {
+        this.dynamicList.innerHTML = '';
+        queryTerms.forEach(queryTerm => {
             // Create a new list item element
             const listItem = document.createElement("li");
-            listItem.textContent = queryTermService.queryTerm.label;
+            listItem.textContent = queryTerm.value;
             listItem.addEventListener("click", () => {
-                this.queryService.setActiveTermsService(queryTermService);
+                this.queryService.setActiveTermsService(queryTerm.value);
             });
             // Append the list item to the dynamic list container
             this.dynamicList.appendChild(listItem);
         });
-    }
-    clearList() {
-        this.dynamicList.innerHTML = '';
-        this.list = [];
     }
 }
 class QueryService {
@@ -391,62 +437,63 @@ class QueryService {
         this.queryTermServices = [];
         this.neighbourTermList = new NeighbourTermList();
         this.queryTermList = new QueryTermList(this);
-        this.query = new Query(this);
+        this.query = new Query('');
     }
     dataWasUpdated() {
         this.neighbourTermList.updateTable();
     }
+    queryGenerationWasRequested() {
+        const termService = new QueryTermService(this, new QueryTerm(this.query.getValue()));
+        this.queryTermServices = [];
+        this.queryTermServices.push(termService);
+        // this.decomposeQuery()
+        this.queryTermList.updateList(this.queryTermServices.map(termService => termService.queryTerm));
+        if (this.queryTermServices.length > 0) {
+            this.activeQueryTermService = this.queryTermServices[0];
+            this.neighbourTermList.setActiveService(this.activeQueryTermService);
+        }
+    }
+    decomposeQuery() {
+        this.queryTermServices = [];
+        for (let term of this.query.getValue().split(' ')) {
+            const termService = new QueryTermService(this, new QueryTerm(term));
+            this.queryTermServices.push(termService);
+        }
+    }
     setQuery(query) {
         var _a;
-        (_a = this.activeQueryTermService) === null || _a === void 0 ? void 0 : _a.hide();
-        this.queryTermList.clearList();
-        this.queryTermServices = [];
-        this.query = query;
+        (_a = this.activeQueryTermService) === null || _a === void 0 ? void 0 : _a.deactivate();
+        this.query = new Query(query);
         this.queryGenerationWasRequested();
         if (this.queryTermServices.length === 0)
             return;
-        this.setActiveTermsService(this.queryTermServices[0]);
+        this.setActiveTermsService(this.queryTermServices[0].queryTerm.value);
     }
-    getQueryValue() {
-        return this.query.getValue();
-    }
-    queryGenerationWasRequested() {
-        this.decomposeQuery();
-        if (this.queryTermServices.length > 0) {
-            this.activeQueryTermService = this.queryTermServices[0];
-            this.neighbourTermList.setService(this.activeQueryTermService);
-        }
-        this.queryTermList.updateList();
-    }
-    decomposeQuery() {
-        const queryChunks = this.query.getValue().split(' ');
-        for (let chunk of queryChunks) {
-            const termService = new QueryTermService(this);
-            termService.setQueryTerm(new QueryTerm(chunk));
-            this.queryTermServices.push(termService);
-            this.queryTermList.list.push(termService);
-        }
-    }
-    setActiveTermsService(termsService) {
+    setActiveTermsService(queryTerm) {
         var _a;
-        (_a = this.activeQueryTermService) === null || _a === void 0 ? void 0 : _a.hide();
-        this.activeQueryTermService = termsService;
+        (_a = this.activeQueryTermService) === null || _a === void 0 ? void 0 : _a.deactivate();
+        const queryTermService = this.findQueryTermService(queryTerm);
+        if (queryTermService === undefined)
+            return;
+        this.activeQueryTermService = queryTermService;
         this.activeQueryTermService.display();
-        this.neighbourTermList.setService(termsService);
+        this.neighbourTermList.setActiveService(queryTermService);
         this.dataWasUpdated();
+        return;
+    }
+    findQueryTermService(queryTerm) {
+        return this.queryTermServices.find(termService => termService.queryTerm.value === queryTerm);
     }
 }
 const queryService = new QueryService();
-const query = new Query(queryService);
-query.setValue('hola mundo');
-queryService.setQuery(query);
+const queryComponent = new QueryComponent(queryService);
 cy.ready(() => {
-    queryService.queryTermServices[0].addNeighbourTerm('holaA');
-    queryService.queryTermServices[0].addNeighbourTerm('holaB');
-    queryService.queryTermServices[0].addNeighbourTerm('holaC');
-    queryService.queryTermServices[1].addNeighbourTerm('mundoA');
-    queryService.queryTermServices[1].addNeighbourTerm('mundoB');
-    queryService.queryTermServices[1].addNeighbourTerm('mundoC');
+    // queryService.queryTermServices[0].addNeighbourTerm('holaA')
+    // queryService.queryTermServices[0].addNeighbourTerm('holaB')
+    // queryService.queryTermServices[0].addNeighbourTerm('holaC')
+    // queryService.queryTermServices[1].addNeighbourTerm('mundoA')
+    // queryService.queryTermServices[1].addNeighbourTerm('mundoB')
+    // queryService.queryTermServices[1].addNeighbourTerm('mundoC')
 });
 let searchTerm = "Graphs";
 const mockResults = [
